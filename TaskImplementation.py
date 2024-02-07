@@ -7,7 +7,7 @@ class Task:
     split 用于继续分割这一任务块
     """
 
-    def __init__(self, layers: list[float], index: int):
+    def __init__(self, layers: list[float], index: int = None):
         self.layers = layers
         self.index = index
         self.total_workload = sum(layers)
@@ -15,29 +15,16 @@ class Task:
     def __sizeof__(self):
         return len(self.layers)
 
-    def split(self, slicing_point: list[int]):
-
-        for point in slicing_point:
-            if point < 0 or point >= self.__sizeof__():
-                raise RuntimeError("The slicing point is out of bound!")
-
-        slicing_point.sort()
-
-        for pre, suf in pairwise(slicing_point):
-            if pre == suf:
-                raise RuntimeError("There should not be 2 same slicing point!")
-
-        slicing_result = []
-        endpoint = 0
-
-        for point in slicing_point:
-            slice = Task(self.layers[endpoint:point], self.index)
-            slicing_result.append(slice)
-
-        return slicing_result
+    def split(self, limit_size):
+        temp = []
+        scheme = []
+        for layer in self.layers:
+            if sum(temp) + layer <= limit_size:
+                temp.append(layer)
+            else:
+                scheme.append(Task(temp.copy(), self.index))
+                temp.clear()
+        return scheme
 
 
-if __name__ == '__main__':
-    task = Task([1, 2, 4, 5], 2)
-    task_slices = task.split([1, 2])
-    print(task, *task_slices)
+EMPTY_TASK = Task([0], 0)
