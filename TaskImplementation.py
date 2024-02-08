@@ -7,8 +7,9 @@ class Task:
     split 用于继续分割这一任务块
     """
 
-    def __init__(self, layers: list[float], index: int = None):
+    def __init__(self, layers: list[float], index: int = None, arrive: float = None):
         self.layers = layers
+        self.arrive = arrive
         self.index = index
         self.total_workload = sum(layers)
 
