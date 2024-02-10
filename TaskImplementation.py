@@ -10,7 +10,7 @@ class Task:
     def __init__(self, layers: list[float], index: int = None, arrive: float = None):
         self.layers = layers
         self.arrive = arrive
-        self.index = index
+        self.idx = index
         self.total_workload = sum(layers)
 
     def __sizeof__(self):
@@ -23,7 +23,7 @@ class Task:
             if sum(temp) + layer <= limit_size:
                 temp.append(layer)
             else:
-                scheme.append(Task(temp.copy(), self.index))
+                scheme.append(Task(temp.copy(), self.idx))
                 temp.clear()
         return scheme
 

@@ -11,22 +11,26 @@ class Satellite:
 
     def load(self, slices: list[Task]):
         """
-        装载任务块到 CPU 上, 同时会将执行状况记录后指派，
+        装载任务块到 CPU 上, 同时会将执行状况记录后指派，返回成功处理的工作量与丢包数
         """
         slices.sort(lambda x: x.total_workload)
         output_slices = []
-
+        successful_workload, successful_list, drop_list = 0, [], []
         self.mask = 0
         for idx, slice in enumerate(slices):
             workload = slice.total_workload
-            slice_idx = slice.index
+            slice_idx = slice.idx
             if workload < self.capability:
                 self.capability -= workload
                 self.completed_cnt += 1
+                successful_workload += workload
+                successful_list.append(slice.idx)
                 self.processing_list[slice_idx] = workload
             else:
+                drop_list = [task.idx for task in slices[idx:]]
                 self.abandon_cnt += len(slices) - idx
                 break
+        return successful_workload, successful_list, drop_list
 
     def offload(self, task_index: int):
         """

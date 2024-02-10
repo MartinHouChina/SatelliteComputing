@@ -5,7 +5,7 @@ from typing import Callable
 
 
 class Network:
-    def __init__(self, width: int, height: int, capability: int, transition_distribution: Callable):
+    def __init__(self, width: int, height: int, bandwidth: float, capability: int, transition_distribution: Callable):
         """
         构造卫星网络
         :param width: 宽
@@ -17,6 +17,7 @@ class Network:
         self.height = height
         self.transition_distribution = transition_distribution
         self.satellite_table = [[Satellite(capability) for _ in range(height)] for __ in range(width)]
+        self.bandwidth = bandwidth
 
     def calc_resource_variance(self):
         """
@@ -34,9 +35,9 @@ class Network:
         uncompleted = np.sum([np.sum([satellite.abandon_cnt for satellite in row]) for row in self.satellite_table])
         return completed / (completed + uncompleted)
 
-    def transition_time_between(self, cord_x1, cord_y1, cord_x2, cord_y2):
+    def transition_cof_between(self, cord_x1, cord_y1, cord_x2, cord_y2):
         distance = abs(cord_x1 - cord_x2) + abs(cord_y1 - cord_y2)
-        return distance * self.transition_distribution()
+        return distance * self.transition_distribution() / self.bandwidth
 
     def __getitem__(self, item):
         return self.satellite_table[item]
@@ -47,7 +48,7 @@ class Network:
         """
         if cord_x < 0 or cord_x >= self.width or cord_y < 0 or cord_y >= self.height:
             raise RuntimeError("An invalid coordinate!!!")
-        self.satellite_table[cord_x][cord_y].load(task_block)
+        return self.satellite_table[cord_x][cord_y].load(task_block)
 
     def undo_with(self, cord_x, cord_y, task_idx):
         if cord_x < 0 or cord_x >= self.width or cord_y < 0 or cord_y >= self.height:
