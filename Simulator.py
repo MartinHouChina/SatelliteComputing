@@ -6,16 +6,18 @@ from StrategyImplementation import Strategy
 
 
 def decide_partitioning(task: Task, num_segments: int) -> list[Task]:
-    L, R = max(task.layers), sum(task.layers)
+    L, R = max(task.layers) + 1, sum(task.layers) * 2
     epsilon = 1e-3
     while R - L > epsilon:
         mid = (L + R) / 2
-        if len(task.split(mid)) < num_segments:
+        if len(task.split(mid)) > num_segments:
             L = mid
         else:
             R = mid
     scheme = task.split(L)
-    while len(scheme) < L: scheme.append(EMPTY_TASK)
+
+    while len(scheme) < num_segments: scheme.append(EMPTY_TASK)
+
     return scheme
 
 
@@ -49,12 +51,12 @@ class Simulator:
             for j in range(len(self.task_matrix[i])):
                 for k in range(len(self.task_matrix[i][j])):
                     self.task_matrix[i][j][k].idx = indices
-                    self.task_matrix[i][j][k].arrive = random_function(args)
+                    self.task_matrix[i][j][k].arrive = random_function(*args)
                     self.task_matrix[i][j][k] = decide_partitioning(self.task_matrix[i][j][k], segment_num)
                     indices += 1
 
     def simulate_with(self, mcd: int, strategy: Strategy, transmission_latency):
-        pass
+        strategy.decide_a_scheme_for(mcd, )
 
 
 if __name__ == '__main__':
@@ -64,14 +66,7 @@ if __name__ == '__main__':
     network = Network(7, 7, 2, 100, custom_distribution(15))
     ga_decider = GA(network, 10 ** 6, 1, 1, 10, 10, 15, 20, 5)
 
-    task_cnt = normal_distribution(30, 16, (7, 7))
-
-    for i in range(7):
-        for j in range(7):
-            cnt = task_cnt[i][j]
-            Queue = list(Task(uniform_distribution(10, 15, 4)) for _ in range(int(cnt)))
-            print(Queue)
-            task_matrix[i][j] = Queue
+    task_matrix = summon_task_matrix(7, 7, 7, 4, 10, 20)
     simulator = Simulator(network, task_matrix)
-    simulator.preprocess(4, uniform_distribution, 10, 100, 1)
-    print(simulator)
+    simulator.preprocess(3, uniform_distribution, 10, 200, 1)
+    Simulator.simulate_with(2, ga_decider, transmission_latency=20)

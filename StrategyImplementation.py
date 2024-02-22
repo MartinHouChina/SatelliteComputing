@@ -144,6 +144,6 @@ class GA(Strategy):
             group.sort(lambda x: x[0])
             group = group[:self.max_indi_num]
 
+        # 返回最优个体染色体
         return group[0][1]
-
 
