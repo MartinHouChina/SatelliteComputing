@@ -15,7 +15,7 @@ class Strategy(ABC):
 
     @abstractmethod
     def decide_a_scheme_for(self, mcd: int, center_x: int, center_y: int,
-                            task_block: list[Task], scheme_length: int):
+                            task_block: list[Task], scheme_length: int) -> list[tuple]:
         pass
 
 
@@ -96,7 +96,7 @@ class GA(Strategy):
         return True
 
     def decide_a_scheme_for(self, mcd: int, center_x: int, center_y: int,
-                            task_block: list[list[Task]], scheme_length: int):
+                            task_block: list[list[Task]], scheme_length: int) -> list[tuple]:
         # 预先运算出动作空间
         def MyRange(L, R):
             return range(L, R + 1)
@@ -108,14 +108,13 @@ class GA(Strategy):
             for j in MyRange(1, mcd - i):
                 bias.extend([(i, j), (i, -j), (-i, j), (-i, -j)])
 
-        bias = list(map(lambda x: (x[0] + center_x, x[1] + center_y), bias))
-        action_space = list(filter(lambda x: 0 <= x[0] < self.network.width and 0 <= x[1] < self.network.height, bias))
-
+        bias = list(map(lambda x: (x[0] + center_x, (x[1] + center_y) % self.network.height), bias))
+        action_space = list(filter(lambda x: 0 <= x[0] < self.network.width, bias))
         # 初始化群体
 
         group = []
         while len(group) < self.init_indi_num:
-            individual = random.choices(action_space, 6)
+            individual = random.choices(action_space, k=scheme_length)
             if self.isValidChro(individual):
                 group.append((self.getDeficit(individual, task_block, center_x, center_y), individual))
 
@@ -136,7 +135,7 @@ class GA(Strategy):
 
             # 插入
             for __ in range(self.inserting_num):
-                individual = random.choices(action_space, 6)
+                individual = random.choices(action_space, k=scheme_length)
                 if self.isValidChro(individual):
                     group.append((self.getDeficit(individual, task_block, center_x, center_y), individual))
 
@@ -146,4 +145,3 @@ class GA(Strategy):
 
         # 返回最优个体染色体
         return group[0][1]
-

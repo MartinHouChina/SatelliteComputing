@@ -11,9 +11,9 @@ class Satellite:
 
     def load(self, slices: list[Task]):
         """
-        装载任务块到 CPU 上, 同时会将执行状况记录后指派，返回成功处理的工作量与丢包数
+        装载任务块到 CPU 上, 同时会将执行状况记录后指派，返回成功处理的工作量与列表，丢包列表
         """
-        slices.sort(lambda x: x.total_workload)
+        slices.sort(key=lambda x: x.total_workload)
         output_slices = []
         successful_workload, successful_list, drop_list = 0, [], []
         self.mask = 0
@@ -37,7 +37,7 @@ class Satellite:
         卸载某一接受处理的任务，如果该任务不存在则报错。
         """
         if task_index not in self.processing_list:
-            raise (RuntimeError("There is no such key in processing_list"))
+            return
         else:
             self.capability += self.processing_list[task_index]
             self.processing_list.pop(task_index)

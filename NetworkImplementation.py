@@ -42,9 +42,9 @@ class Network:
     def __getitem__(self, item):
         return self.satellite_table[item]
 
-    def assign_with(self, cord_x, cord_y, task_block: list[Task]):
+    def assign_with(self, cord_x, cord_y, task_block: list[Task]) -> tuple:
         """
-        为第 x 行 第 y 列的卫星分配 任务task
+        为第 x 行 第 y 列的卫星分配 任务task, 返回处理列表，详见 satellite.load 函数
         """
         if cord_x < 0 or cord_x >= self.width or cord_y < 0 or cord_y >= self.height:
             raise RuntimeError("An invalid coordinate!!!")

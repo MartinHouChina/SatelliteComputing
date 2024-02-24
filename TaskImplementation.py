@@ -23,7 +23,7 @@ class Task:
             if sum(temp) + layer <= limit_size:
                 temp.append(layer)
             else:
-                scheme.append(Task(temp.copy(), self.idx))
+                scheme.append(Task(temp.copy(), self.idx, self.arrive))
                 temp.clear()
         return scheme
 
