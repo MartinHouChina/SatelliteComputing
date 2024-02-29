@@ -2,7 +2,7 @@ import random
 from NetworkImplementation import Network
 from abc import abstractmethod, ABC
 from TaskImplementation import Task
-from TaskSummoner import custom_distribution
+from Distributions import custom_distribution
 from typing import Callable
 from SatelliteImplementation import Satellite
 import numpy as np
@@ -145,3 +145,28 @@ class GA(Strategy):
 
         # 返回最优个体染色体
         return group[0][1]
+
+
+class Random(Strategy):
+    def __init__(self, network: Network):
+        self.network = network
+
+    def decide_a_scheme_for(self, mcd: int, center_x: int, center_y: int,
+                            task_block: list[Task], scheme_length: int) -> list[tuple]:
+
+        # 预先运算出动作空间
+        def MyRange(L, R):
+            return range(L, R + 1)
+
+        bias = [(0, i) for i in MyRange(-mcd, mcd)]
+
+        for i in MyRange(1, mcd):
+            bias.extend([(i, 0), (-i, 0)])
+            for j in MyRange(1, mcd - i):
+                bias.extend([(i, j), (i, -j), (-i, j), (-i, -j)])
+
+        bias = list(map(lambda x: (x[0] + center_x, (x[1] + center_y) % self.network.height), bias))
+        action_space = list(filter(lambda x: 0 <= x[0] < self.network.width, bias))
+
+        scheme = random.choices(action_space, k=scheme_length)
+        return scheme

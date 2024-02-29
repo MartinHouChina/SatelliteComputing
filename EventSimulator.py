@@ -62,7 +62,7 @@ class Event:
             self.dfn += successful_workload
             self.status = "offload"
 
-        if self.status == "offload":
+        elif self.status == "offload":
             # 目标卫星在网络中的位置
             target_x, target_y = self.trajectory[self.cur_pos]
 

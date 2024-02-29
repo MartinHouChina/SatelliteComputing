@@ -75,7 +75,11 @@ class Simulator:
                                                                            self.segment_num)
                         indices += 1
 
-    def simulate_with(self, mcd: int, strategy: Strategy, transmission_latency):
+    def simulate_with(self, mcd: int, strategy: Strategy):
+
+        # 重置卫星网络
+        self.network.reset()
+
         # 模拟时间线
         eventline = PriorityQueue()
 
@@ -92,7 +96,7 @@ class Simulator:
         # 开始模拟
         while eventline.qsize():
             event: Event = eventline.get()
-            print(event.dfn, event.status, total_drop, total_processed)
+            print(event.dfn, event.status, self.network.calc_task_completion(), self.network.calc_resource_variance())
             if event.status == "undetermined":
                 event.determine_with_strategy(strategy, mcd, self.segment_num)
                 eventline.put(event)
@@ -105,15 +109,16 @@ class Simulator:
                 total_delay += event.total_time
 
 
-
 if __name__ == '__main__':
-    from StrategyImplementation import GA
-    from TaskSummoner import *
+    from StrategyImplementation import GA, Random
+    from Distributions import *
 
     network = Network(7, 7, 2, 100, lambda: 15)
     ga_decider = GA(network, 10 ** 6, 1, 1, 10, 10, 15, 20, 5)
-
-    task_matrix = summon_task_matrix(7, 7, 7, 4, 10, 20)
+    random_decider = Random(network)
+    task_matrix = summon_task_matrix(7, 7, 7, 4, 20, 70)
     simulator = Simulator(network, task_matrix, 3)
     simulator.preprocess(uniform_distribution, 300, 10, 200, 1)
-    simulator.simulate_with(2, ga_decider, transmission_latency=20)
+
+    simulator.simulate_with(2, ga_decider)
+    simulator.simulate_with(2, random_decider)

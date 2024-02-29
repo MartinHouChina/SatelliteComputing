@@ -27,6 +27,10 @@ class Network:
         variance = np.var(resource_distribution)
         return variance
 
+    def print_source_matrix(self):
+        for i in range(self.width):
+            print([self.satellite_table[i][j].capability for j in range(self.height)])
+
     def calc_task_completion(self):
         """
         返回当前总完成率
@@ -54,3 +58,17 @@ class Network:
         if cord_x < 0 or cord_x >= self.width or cord_y < 0 or cord_y >= self.height:
             raise RuntimeError("An invalid coordinate!!!")
         self.satellite_table[cord_x][cord_y].offload(task_idx)
+
+    def reset(self):
+        for i in range(self.width):
+            for j in range(self.height):
+                self.satellite_table[i][j].reset()
+
+
+if __name__ == '__main__':
+    network = Network(7, 7, 2, 100, lambda: 15)
+    task = Task([11], 1, 1)
+    network.assign_with(1, 1, [task])
+    network.print_source_matrix()
+    network.undo_with(1, 1, 1)
+    network.print_source_matrix()
