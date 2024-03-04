@@ -53,4 +53,5 @@ def summon_task_matrix(width: int, height: int, layer_cnt: int, lam: float, lowe
 
 if __name__ == '__main__':
     task_matrix = summon_task_matrix(2, 2, 5, 4, 1, 5)
-    print(task_matrix, '\n', task_matrix[0], '\n', task_matrix[0][0], '\n', task_matrix[0][0][0].layers)
+    print(task_matrix, '\n', task_matrix[0], '\n',
+          task_matrix[0][0], '\n', task_matrix[0][0][0].layers)

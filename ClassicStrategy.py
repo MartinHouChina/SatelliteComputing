@@ -3,6 +3,7 @@ from NetworkImplementation import Network
 from TaskImplementation import Task
 import numpy as np
 import random
+from queue import PriorityQueue
 
 
 class GA(Strategy):
@@ -31,19 +32,24 @@ class GA(Strategy):
         log = []
         for i in range(len(chro)):
             # 拿出这一列任务切片
-            slice = [origin[i] for origin in task_block_seq if origin[i].idx not in abandoned_set]
-            total_workload = np.sum([task_slice.total_workload for task_slice in slice])
+            slice = [origin[i]
+                     for origin in task_block_seq if origin[i].idx not in abandoned_set]
+            total_workload = np.sum(
+                [task_slice.total_workload for task_slice in slice])
 
             # 计算推演时间与总丢包
             now_x, now_y = chro[i]
-            extra_inf_time, extra_processed_list, extra_drop_list = self.network.assign_with(now_x, now_y, slice)
+            extra_inf_time, extra_processed_list, extra_drop_list = self.network.assign_with(
+                now_x, now_y, slice)
             total_drop += len(extra_drop_list)
             for idx in extra_drop_list:
                 abandoned_set.add(idx)
             inference_time += extra_inf_time
 
             # 计算运输时间
-            transmission_time += total_workload * self.network.transition_cof_between(start_x, start_y, now_x, now_y)
+            transmission_time += total_workload * \
+                self.network.transition_cof_between(
+                    start_x, start_y, now_x, now_y)
 
             # 为下一次推演做准备
             start_x, start_y = now_x, now_y
@@ -60,7 +66,8 @@ class GA(Strategy):
 
     def mate(self, chro1: list[tuple], chro2: list[tuple]):
         if len(chro1) != len(chro2):
-            raise RuntimeError("The length of input chromosome is not equivalent")
+            raise RuntimeError(
+                "The length of input chromosome is not equivalent")
         Len = len(chro1)
         newborn = []
         for i in range(Len):
@@ -84,25 +91,14 @@ class GA(Strategy):
     def decide_a_scheme_for(self, mcd: int, center_x: int, center_y: int,
                             task_block: list[list[Task]], scheme_length: int) -> list[tuple]:
         # 预先运算出动作空间
-        def MyRange(L, R):
-            return range(L, R + 1)
-
-        bias = [(0, i) for i in MyRange(-mcd, mcd)]
-
-        for i in MyRange(1, mcd):
-            bias.extend([(i, 0), (-i, 0)])
-            for j in MyRange(1, mcd - i):
-                bias.extend([(i, j), (i, -j), (-i, j), (-i, -j)])
-
-        bias = list(map(lambda x: (x[0] + center_x, (x[1] + center_y) % self.network.height), bias))
-        action_space = list(filter(lambda x: 0 <= x[0] < self.network.width, bias))
-        # 初始化群体
+        action_space = self.network.calc_action_space(mcd, center_x, center_y)
 
         group = []
         while len(group) < self.init_indi_num:
             individual = random.choices(action_space, k=scheme_length)
             if self.isValidChro(individual):
-                group.append((self.getDeficit(individual, task_block, center_x, center_y), individual))
+                group.append(
+                    (self.getDeficit(individual, task_block, center_x, center_y), individual))
 
         # 迭代
         last_best_deficit = 1 ** 20
@@ -115,15 +111,18 @@ class GA(Strategy):
             for i in range(len(group)):
                 for j in range(i + 1, len(group)):
                     newborn_group = self.mate(group[i][1], group[j][1])
-                    newborn_group = list(filter(lambda x: self.isValidChro(x), newborn_group))
+                    newborn_group = list(
+                        filter(lambda x: self.isValidChro(x), newborn_group))
                     for newchro in newborn_group:
-                        group.append((self.getDeficit(newchro, task_block, center_x, center_y), newchro))
+                        group.append(
+                            (self.getDeficit(newchro, task_block, center_x, center_y), newchro))
 
             # 插入
             for __ in range(self.inserting_num):
                 individual = random.choices(action_space, k=scheme_length)
                 if self.isValidChro(individual):
-                    group.append((self.getDeficit(individual, task_block, center_x, center_y), individual))
+                    group.append(
+                        (self.getDeficit(individual, task_block, center_x, center_y), individual))
 
             # 淘汰
             group.sort(lambda x: x[0])
@@ -138,21 +137,10 @@ class Random(Strategy):
         self.network = network
 
     def decide_a_scheme_for(self, mcd: int, center_x: int, center_y: int,
-                            task_block: list[Task], scheme_length: int) -> list[tuple]:
+                            task_block: list[list[Task]], scheme_length: int) -> list[tuple]:
 
         # 预先运算出动作空间
-        def MyRange(L, R):
-            return range(L, R + 1)
-
-        bias = [(0, i) for i in MyRange(-mcd, mcd)]
-
-        for i in MyRange(1, mcd):
-            bias.extend([(i, 0), (-i, 0)])
-            for j in MyRange(1, mcd - i):
-                bias.extend([(i, j), (i, -j), (-i, j), (-i, -j)])
-
-        bias = list(map(lambda x: (x[0] + center_x, (x[1] + center_y) % self.network.height), bias))
-        action_space = list(filter(lambda x: 0 <= x[0] < self.network.width, bias))
+        action_space = self.network.calc_action_space(mcd, center_x, center_y)
 
         scheme = random.choices(action_space, k=scheme_length)
         return scheme
@@ -163,19 +151,28 @@ class Greedy(Strategy):
         self.network = network
 
     def decide_a_scheme_for(self, mcd: int, center_x: int, center_y: int,
-                            task_block: list[Task], scheme_length: int) -> list[tuple]:
-        def MyRange(L, R):
-            return range(L, R + 1)
+                            task_block: list[list[Task]], scheme_length: int) -> list[tuple]:
 
-        bias = [(0, i) for i in MyRange(-mcd, mcd)]
+        action_space = self.network.calc_action_space(mcd, center_x, center_y)
 
-        for i in MyRange(1, mcd):
-            bias.extend([(i, 0), (-i, 0)])
-            for j in MyRange(1, mcd - i):
-                bias.extend([(i, j), (i, -j), (-i, j), (-i, -j)])
+        # 获取切片
+        slices = [sum([task[i].total_workload for task in task_block])
+                  for i in range(scheme_length)]
 
-        bias = list(map(lambda x: (x[0] + center_x, (x[1] + center_y) % self.network.height), bias))
-        action_space = list(filter(lambda x: 0 <= x[0] < self.network.width, bias))
+        # 利用 堆进行贪心算法会比纯暴力遍历稍微快些
+        Most_Capability_Heap = PriorityQueue()
 
-        scheme = random.choices(action_space, k=scheme_length)
+        for x, y in action_space:
+            capability_tuple = (
+                -self.network.satellite_table[x][y].capability, x, y)
+            Most_Capability_Heap.put(capability_tuple)
+
+        scheme = []
+        while len(scheme) < scheme_length:
+            # 目标切片
+            slice = slices[len(scheme)]
+            capbility, x, y = Most_Capability_Heap.get()
+            capbility += slice
+            scheme.append((x, y))
+
         return scheme

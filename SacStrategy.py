@@ -51,7 +51,8 @@ class PolicyNet(nn.Module):
         x = F.relu(self.fc2(x))
         mu = self.mu_head(x)
         log_std_head = F.relu(self.log_std_head(x))
-        log_std_head = torch.clamp(log_std_head, self.min_log_std, self.max_log_std)
+        log_std_head = torch.clamp(
+            log_std_head, self.min_log_std, self.max_log_std)
         return mu, log_std_head
 
 
@@ -108,16 +109,20 @@ class SAC:
         self.target_q_net_2.load_state_dict(self.q_net_2.state_dict())
 
         # 确定网络所使用的优化器
-        self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=actor_lr)
-        self.q_net_1_optimizer = torch.optim.Adam(self.q_net_1.parameters(), lr=Q_lr)
-        self.q_net_2_optimizer = torch.optim.Adam(self.q_net_2.parameters(), lr=Q_lr)
+        self.actor_optimizer = torch.optim.Adam(
+            self.actor.parameters(), lr=actor_lr)
+        self.q_net_1_optimizer = torch.optim.Adam(
+            self.q_net_1.parameters(), lr=Q_lr)
+        self.q_net_2_optimizer = torch.optim.Adam(
+            self.q_net_2.parameters(), lr=Q_lr)
 
         # 初始化可训练参数alpha
         self.log_alpha = torch.tensor(np.log(0.01), dtype=torch.float)
         # alpha可以训练求梯度
         self.log_alpha.requires_grad = True
         # 定义alpha的优化器
-        self.log_alpha_optimizer = torch.optim.Adam([self.log_alpha], lr=alpha_lr)
+        self.log_alpha_optimizer = torch.optim.Adam(
+            [self.log_alpha], lr=alpha_lr)
 
         # 属性分配
         self.target_entropy = target_entropy
@@ -151,7 +156,8 @@ class SAC:
         q2_value = self.target_q_net_2(next_states, next_action)
 
         # 算出下一个价值
-        next_value = torch.min(q1_value, q2_value) + self.log_alpha.exp() * entropy
+        next_value = torch.min(q1_value, q2_value) + \
+            self.log_alpha.exp() * entropy
 
         # 时序差分，目标网络输出当前时刻的state_value  [b, n_actions]
         y = rewards + self.gamma * next_value * (1 - dones)
@@ -159,11 +165,16 @@ class SAC:
 
     # 模型训练
     def update(self, batch):  # 对应 11 ~ 15 行
-        states = torch.tensor(batch['states'], dtype=torch.float).to(self.device)  # [b,n_states]
-        actions = torch.tensor(batch['actions']).view(-1, 1).to(self.device)  # [b,1]
-        rewards = torch.tensor(batch['rewards'], dtype=torch.float).view(-1, 1).to(self.device)  # [b,1]
-        next_states = torch.tensor(batch['next_states'], dtype=torch.float).to(self.device)  # [b,n_states]
-        dones = torch.tensor(batch['dones'], dtype=torch.float).view(-1, 1).to(self.device)  # [b,1]
+        states = torch.tensor(batch['states'], dtype=torch.float).to(
+            self.device)  # [b,n_states]
+        actions = torch.tensor(
+            batch['actions']).view(-1, 1).to(self.device)  # [b,1]
+        rewards = torch.tensor(
+            batch['rewards'], dtype=torch.float).view(-1, 1).to(self.device)  # [b,1]
+        next_states = torch.tensor(batch['next_states'], dtype=torch.float).to(
+            self.device)  # [b,n_states]
+        dones = torch.tensor(
+            batch['dones'], dtype=torch.float).view(-1, 1).to(self.device)  # [b,1]
 
         # --------------------------------- #
         # 更新2个价值网络, 对应 12 ~ 13 行
@@ -202,7 +213,8 @@ class SAC:
         entropy = -log_prob
         q1_value = self.q_net_1(states, new_actions)
         q2_value = self.q_net_2(states, new_actions)
-        actor_loss = torch.mean(- self.log_alpha.exp() * entropy - torch.min(q1_value, q2_value))
+        actor_loss = torch.mean(- self.log_alpha.exp()
+                                * entropy - torch.min(q1_value, q2_value))
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
         self.actor_optimizer.step()
@@ -211,7 +223,8 @@ class SAC:
         # 更新可训练遍历alpha
         # --------------------------------- #
 
-        alpha_loss = torch.mean((entropy - self.target_entropy).detach() * self.log_alpha.exp())
+        alpha_loss = torch.mean(
+            (entropy - self.target_entropy).detach() * self.log_alpha.exp())
         # 梯度更新
         self.log_alpha_optimizer.zero_grad()
         alpha_loss.backward()
@@ -226,4 +239,5 @@ class SAC:
         # 遍历预测网络和目标网络的参数
         for param_target, param in zip(target_net.parameters(), net.parameters()):
             # 预测网络的参数赋给目标网络
-            param_target.data.copy_(param_target.data * (1 - self.rho) + param.data * self.rho)
+            param_target.data.copy_(
+                param_target.data * (1 - self.rho) + param.data * self.rho)

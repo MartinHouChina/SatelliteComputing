@@ -1,11 +1,6 @@
-import random
 from NetworkImplementation import Network
 from abc import abstractmethod, ABC
 from TaskImplementation import Task
-from Distributions import custom_distribution
-from typing import Callable
-from SatelliteImplementation import Satellite
-import numpy as np
 
 
 class Strategy(ABC):

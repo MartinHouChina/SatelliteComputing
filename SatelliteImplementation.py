@@ -37,7 +37,8 @@ class Satellite:
         卸载某一接受处理的任务，如果该任务不存在则报错。
         """
         if task_index not in self.processing_list:
-            raise RuntimeError("No such index!", task_index, self.processing_list)
+            raise RuntimeError("No such index!", task_index,
+                               self.processing_list)
         else:
             self.capability += self.processing_list[task_index].get()
 
