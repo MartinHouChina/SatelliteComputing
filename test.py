@@ -1,10 +1,9 @@
-class A:
-    def __init__(self, value):
-        self.value = value
-
-
 if __name__ == '__main__':
-    a = A(2)
-    b = [a.value]
-    b[0] -= 2
-    print(a.value)
+    dictionary = {
+        1:2,
+        2:3,
+        3:4,
+        4:5
+    }
+    for _ in range(10):
+        print(list(dictionary.keys()))

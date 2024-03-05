@@ -5,7 +5,8 @@ from torch.nn import functional as F
 import numpy as np
 import collections
 import random
-from abc import abstractmethod
+from abc import abstractmethod, ABC
+from NetworkImplementation import Network
 
 
 # ----------------------------------------- #
@@ -55,7 +56,6 @@ class PolicyNet(nn.Module):
             log_std_head, self.min_log_std, self.max_log_std)
         return mu, log_std_head
 
-
 # ----------------------------------------- #
 # 动作 - 状态价值网络
 # ----------------------------------------- #
@@ -78,10 +78,10 @@ class QNet(nn.Module):
 
 
 # ----------------------------------------- #
-# SAC 强化学习系统 构建
+# SAC 强化学习系统核心，对于观察部分需要根据具体实验修改
 # ----------------------------------------- #
 
-class SAC:
+class SAC_core(ABC):
     def __init__(self,
                  n_states,  # 状态数
                  n_actions,  # 动作数
@@ -140,13 +140,13 @@ class SAC:
         return action.item()
 
     @abstractmethod
-    def observe(self, current_state, action, environment):  # 对应算法 5 ~ 6 行
+    def observe(self, *args):  # 对应算法 5 ~ 6 行
         # 在特定环境中的指定状态下执行某一动作后, 观察得到的奖励，下一状态，以及终止标志
         pass
 
     def calc_target(self, rewards, next_states, dones):  # 对应算法第 12 行, 计算目标值 y
 
-        next_actions, log_prob = self.actor(next_states)
+        _, log_prob = self.actor(next_states)
         entropy = -log_prob
         # 根据当前策略网络中提取下一个可能动作
         next_action = self.take_action(next_states)
@@ -165,16 +165,13 @@ class SAC:
 
     # 模型训练
     def update(self, batch):  # 对应 11 ~ 15 行
-        states = torch.tensor(batch['states'], dtype=torch.float).to(
-            self.device)  # [b,n_states]
-        actions = torch.tensor(
-            batch['actions']).view(-1, 1).to(self.device)  # [b,1]
-        rewards = torch.tensor(
-            batch['rewards'], dtype=torch.float).view(-1, 1).to(self.device)  # [b,1]
-        next_states = torch.tensor(batch['next_states'], dtype=torch.float).to(
-            self.device)  # [b,n_states]
-        dones = torch.tensor(
-            batch['dones'], dtype=torch.float).view(-1, 1).to(self.device)  # [b,1]
+        states, actions, rewards, next_states, dones = batch
+
+        states = torch.tensor(states, dtype=torch.float).to(self.device)  # [b,n_states]
+        actions = torch.tensor(actions).view(-1, 1).to(self.device)  # [b,1]
+        rewards = torch.tensor(rewards, dtype=torch.float).view(-1, 1).to(self.device)  # [b,1]
+        next_states = torch.tensor(next_states, dtype=torch.float).to(self.device)  # [b,n_states]
+        dones = torch.tensor(dones, dtype=torch.float).view(-1, 1).to(self.device)  # [b,1]
 
         # --------------------------------- #
         # 更新2个价值网络, 对应 12 ~ 13 行
@@ -234,10 +231,116 @@ class SAC:
         self.soft_update(self.q_net_1, self.target_q_net_1)
         self.soft_update(self.q_net_2, self.target_q_net_2)
 
-    # 软更新，每次训练更新部分参数
+    # 软更新，每次训练更新部分参数 
     def soft_update(self, net, target_net):  # 对应算法第 15 行
         # 遍历预测网络和目标网络的参数
         for param_target, param in zip(target_net.parameters(), net.parameters()):
             # 预测网络的参数赋给目标网络
             param_target.data.copy_(
                 param_target.data * (1 - self.rho) + param.data * self.rho)
+
+
+
+def MySAC(SAC_core): # 根据我们实验修改的 SAC 实现
+    def __init__(self,
+                 n_states,  # 状态数
+                 n_actions,  # 动作数
+                 actor_lr,  # policy 学习率
+                 Q_lr,  # QNet 学习率
+                 alpha_lr,  # alpha 学习率
+                 target_entropy,
+                 rho,  # 参数更新率
+                 gamma,  # 折扣因子
+                 device="gpu" if torch.cuda.is_available() else "cpu",  # 训练设备
+                 assignment_reward, # 成功分配后的 Reward
+                 variance_ratio_reward # 分配前后方差的 Reward
+                 ):
+         super().__init__(n_states, n_actions, actor_lr, Q_lr, alpha_lr, target_entropy, rho,
+                     gamma, device)
+         self.assignment_reward = assignment_reward
+         self.variance_ratio_reward = variance_ratio_reward
+    
+    
+    def observe(self, mcd, cord_x, cord_y, next_hop, workload, isDone, network:Network):  # 对应算法 5 ~ 6 行
+        # 在特定环境中的指定状态下执行某一动作后, 观察得到的奖励，下一状态，以及终止标志
+        # 根据我们的算法 current_state 会是一个 5 个元素 的邻近资源 tensor
+        # 计算 SAC 
+        action_space = network.calc_action_space(mcd, cord_x, cord_y)
+        
+        # 初始化 资源 列表
+        capability_table = {
+            (-1, 0): 0,
+            (0, -1): 0,
+            (0, 0): 0,
+            (0, 1): 0,
+            (1, 0): 0
+        }
+        
+        # 辅助函数,返回一个数的符号
+        def get_sign(num):
+            if num == 0:
+                return 0
+            else:
+                return 1 if num > 0 else -1
+
+        # 填充 capability_table
+        for x, y in action_space:
+            x_component, y_component  = x - cord_x, y - cord_y
+            # 如果这个点恰好是正中心，则单独构成中心分量
+            if x_component == 0 and y_component == 0:
+                capability_table[(0, 0)] = network.satellite_table[x][y].capability
+            else: # 否则计算其在 x, y 方向上的分别贡献
+                capability = network.satellite_table[x][y].capability
+                
+                # 获取贡献方向 
+                x_dir, y_dir = get_sign(x_component), get_sign(y_component)
+
+                # 计算 X 方向上的 贡献
+                if x_dir:
+                    cordination = (x_dir, 0)
+                    capability_table[cordination] += capability * abs(x_component) / (abs(x_component) + abs(y_component))
+
+                # 计算 Y 方向上的 贡献
+                if y_dir:
+                    cordination = (0, y_dir)
+                    capability_table[cordination] += capability * abs(y_component) / (abs(x_component) + abs(y_component))
+        
+        capability_list = list(capability_table.values())
+        
+        before_variance = np.var(capability_list)
+        # 获取当前状态 tensor
+        current_state = torch.tensor(capability_list)
+
+        # 获取 动作
+        # 根据我们的方案， 有5个动作，分别对应表示当前卫星将下一切片传输到哪
+        #   0
+        # 1 2 3
+        #   4
+        action = torch.tensor(next_hop)
+
+        action_list = list(capability_table.keys())
+        # 更新 capability_table, 为计算 next_state 作准备
+       
+        cordination = action_list[next_hop]
+
+        reward = 0
+
+        # 成功分配 的 误差
+        if capability_table[cordination] >= workload:
+            capability_table[cordination] -= workload
+            reward += self.assignment_reward
+        
+        capability_list = list(capability_table.values())
+        # 计算下一个状态
+        next_state = torch.tensor(capability_list)
+        after_variance = np.var(capability_list)
+
+        # 平衡分配 的 奖励
+        reward += self.variance_ratio_reward * max(0, before_variance - after_variance)
+
+
+
+        return current_state, action, reward, next_state, isDone
+
+
+
