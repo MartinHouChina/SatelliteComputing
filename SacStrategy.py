@@ -25,6 +25,7 @@ class ReplayBuffer:
     def sample(self, batch_size):
         transitions = random.sample(self.buffer, batch_size)
         # 取出这batch组数据
+        print(transitions)
         state, action, reward, next_state, done = zip(*transitions)
         return np.array(state), action, reward, np.array(next_state), done
 
@@ -34,27 +35,23 @@ class ReplayBuffer:
 
 
 # ----------------------------------------- #
-# 策略网络
+# 离散 策略网络 输入状态 输出 指定动作
 # ----------------------------------------- #
 
 class PolicyNet(nn.Module):
-    def __init__(self, state_dim, action_dim, min_log_std=-10, max_log_std=2):
+    def __init__(self, state_dim, action_dim):
         super(PolicyNet, self).__init__()
         self.fc1 = nn.Linear(state_dim, 256)
         self.fc2 = nn.Linear(256, 256)
-        self.mu_head = nn.Linear(256, action_dim)  # 均值
-        self.log_std_head = nn.Linear(256, action_dim)  # 标准差
-        self.min_log_std = min_log_std
-        self.max_log_std = max_log_std
+        self.fc3 = nn.Linear(256, action_dim)  # 标准差
 
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        mu = self.mu_head(x)
-        log_std_head = F.relu(self.log_std_head(x))
-        log_std_head = torch.clamp(
-            log_std_head, self.min_log_std, self.max_log_std)
-        return mu, log_std_head
+
+    def forward(self, s):
+        prediction = self.fc3(F.relu(self.fc2(F.relu(self.fc1(s)))))
+        distribution = nn.Softmax(dim=0)(prediction)
+        entropy = - distribution * torch.log(distribution)
+        a = torch.argmax(distribution)
+        return a, entropy
 
 # ----------------------------------------- #
 # 动作 - 状态价值网络
@@ -97,12 +94,12 @@ class SAC_core(ABC):
         self.actor = PolicyNet(n_states, n_actions).to(device)
 
         # 实例化两个 Q-net 预测网络
-        self.q_net_1 = QNet(n_states + n_actions).to(device)
-        self.q_net_2 = QNet(n_states + n_actions).to(device)
+        self.q_net_1 = QNet(n_states + 1).to(device)
+        self.q_net_2 = QNet(n_states + 1).to(device)
 
         # 实例化两个 Q-net 目标网络
-        self.target_q_net_1 = QNet(n_states + n_actions).to(device)
-        self.target_q_net_2 = QNet(n_states + n_actions).to(device)
+        self.target_q_net_1 = QNet(n_states + 1).to(device)
+        self.target_q_net_2 = QNet(n_states + 1).to(device)
 
         # 预测和目标的价值网络的参数初始化一样
         self.target_q_net_1.load_state_dict(self.q_net_1.state_dict())
@@ -131,13 +128,9 @@ class SAC_core(ABC):
         self.device = device
 
     def take_action(self, state):  # 对应算法第 4 行, 利用 reparameterization trick 选取动作
-        state = torch.FloatTensor(state).to(self.device)
-        mu, log_sigma = self.actor(state)
-        sigma = torch.exp(log_sigma)
-        dist = torch.distributions.Normal(mu, sigma)
-        z = dist.sample()
-        action = torch.tanh(z).detach().cpu().numpy()
-        return action.item()
+        state = state.clone().detach().to(self.device)
+        action, _ = self.actor(state)
+        return action
 
     @abstractmethod
     def observe(self, *args):  # 对应算法 5 ~ 6 行
@@ -146,8 +139,7 @@ class SAC_core(ABC):
 
     def calc_target(self, rewards, next_states, dones):  # 对应算法第 12 行, 计算目标值 y
 
-        _, log_prob = self.actor(next_states)
-        entropy = -log_prob
+        _, entropy  = self.actor(next_states)
         # 根据当前策略网络中提取下一个可能动作
         next_action = self.take_action(next_states)
 
@@ -179,14 +171,14 @@ class SAC_core(ABC):
 
         # 目标网络的state_value [b, 1]
         y = self.calc_target(rewards, next_states, dones)
-
+        y = torch.squeeze(y, 1)
         # Q网络1--预测
-        q_net_1_qvalues = self.q_net_1(states).gather(1, actions)
+        q_net_1_qvalues = self.q_net_1(states, actions)
         # 均方差损失 预测-目标
         q_net_1_loss = torch.mean(F.mse_loss(q_net_1_qvalues, y.detach()))
 
         # Q网络2--预测
-        q_net_2_qvalues = self.q_net_2(states).gather(1, actions)
+        q_net_2_qvalues = self.q_net_2(states, actions).reshape(-1)
         # 均方差损失
         q_net_2_loss = torch.mean(F.mse_loss(q_net_2_qvalues, y.detach()))
 
@@ -206,8 +198,7 @@ class SAC_core(ABC):
         # 更新策略网络, 对应第 14 行
         # --------------------------------- #
 
-        new_actions, log_prob = self.actor(states)
-        entropy = -log_prob
+        new_actions, entropy = self.actor(states)
         q1_value = self.q_net_1(states, new_actions)
         q2_value = self.q_net_2(states, new_actions)
         actor_loss = torch.mean(- self.log_alpha.exp()
@@ -241,7 +232,7 @@ class SAC_core(ABC):
 
 
 
-def MySAC(SAC_core): # 根据我们实验修改的 SAC 实现
+class  MySAC(SAC_core): # 根据我们实验修改的 SAC 实现
     def __init__(self,
                  n_states,  # 状态数
                  n_actions,  # 动作数
@@ -251,9 +242,9 @@ def MySAC(SAC_core): # 根据我们实验修改的 SAC 实现
                  target_entropy,
                  rho,  # 参数更新率
                  gamma,  # 折扣因子
-                 device="gpu" if torch.cuda.is_available() else "cpu",  # 训练设备
                  assignment_reward, # 成功分配后的 Reward
-                 variance_ratio_reward # 分配前后方差的 Reward
+                 variance_ratio_reward, # 分配前后方差的 Reward
+                 device = "cuda" if torch.cuda.is_available() else "cpu"  # 训练设备
                  ):
          super().__init__(n_states, n_actions, actor_lr, Q_lr, alpha_lr, target_entropy, rho,
                      gamma, device)
@@ -337,9 +328,7 @@ def MySAC(SAC_core): # 根据我们实验修改的 SAC 实现
 
         # 平衡分配 的 奖励
         reward += self.variance_ratio_reward * max(0, before_variance - after_variance)
-
-
-
+        print(len(current_state), current_state, len(next_state), next_state)
         return current_state, action, reward, next_state, isDone
 
 
