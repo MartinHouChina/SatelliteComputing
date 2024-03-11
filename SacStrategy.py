@@ -1,6 +1,6 @@
 # 处理离散问题的模型
 import torch
-from torch import nn
+from torch import nn, unsqueeze
 from torch.nn import functional as F
 import numpy as np
 import collections
@@ -25,9 +25,9 @@ class ReplayBuffer:
     def sample(self, batch_size):
         transitions = random.sample(self.buffer, batch_size)
         # 取出这batch组数据
-        print(transitions)
-        state, action, reward, next_state, done = zip(*transitions)
-        return np.array(state), action, reward, np.array(next_state), done
+        # state, action, reward, next_state, done = zip(*transitions)
+        state, action, reward, next_state, done = tuple([item[i] for item in transitions] for i in range(5))
+        return state, action, reward, next_state, done
 
     # 当前时刻的经验池容量
     def size(self):
@@ -50,7 +50,10 @@ class PolicyNet(nn.Module):
         prediction = self.fc3(F.relu(self.fc2(F.relu(self.fc1(s)))))
         distribution = nn.Softmax(dim=0)(prediction)
         entropy = - distribution * torch.log(distribution)
-        a = torch.argmax(distribution)
+        a = torch.argmax(distribution, dim=1)
+        a = a.unsqueeze(dim=1)
+        entropy = torch.sum(entropy, dim=1)
+        entropy = entropy.unsqueeze(dim=1)
         return a, entropy
 
 # ----------------------------------------- #
@@ -65,9 +68,7 @@ class QNet(nn.Module):
         self.fc3 = nn.Linear(256, 1)
 
     def forward(self, s, a):
-        s = s.reshape(-1)
-        a = a.reshape(-1)
-        x = torch.cat((s, a), -1)  # combination s and a
+        x = torch.cat((s, a), 1)# combination s and a
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = self.fc3(x)
@@ -104,11 +105,11 @@ class SAC_core(ABC):
         # 预测和目标的价值网络的参数初始化一样
         self.target_q_net_1.load_state_dict(self.q_net_1.state_dict())
         self.target_q_net_2.load_state_dict(self.q_net_2.state_dict())
-
+ 
         # 确定网络所使用的优化器
         self.actor_optimizer = torch.optim.Adam(
             self.actor.parameters(), lr=actor_lr)
-        self.q_net_1_optimizer = torch.optim.Adam(
+        self.q_net_1_optimizer= torch.optim.Adam(
             self.q_net_1.parameters(), lr=Q_lr)
         self.q_net_2_optimizer = torch.optim.Adam(
             self.q_net_2.parameters(), lr=Q_lr)
@@ -142,15 +143,12 @@ class SAC_core(ABC):
         _, entropy  = self.actor(next_states)
         # 根据当前策略网络中提取下一个可能动作
         next_action = self.take_action(next_states)
-
         # 目标价值网络，下一时刻的 state_value  [b,n_actions]
         q1_value = self.target_q_net_1(next_states, next_action)
         q2_value = self.target_q_net_2(next_states, next_action)
-
         # 算出下一个价值
         next_value = torch.min(q1_value, q2_value) + \
             self.log_alpha.exp() * entropy
-
         # 时序差分，目标网络输出当前时刻的state_value  [b, n_actions]
         y = rewards + self.gamma * next_value * (1 - dones)
         return y
@@ -158,27 +156,24 @@ class SAC_core(ABC):
     # 模型训练
     def update(self, batch):  # 对应 11 ~ 15 行
         states, actions, rewards, next_states, dones = batch
-
         states = torch.tensor(states, dtype=torch.float).to(self.device)  # [b,n_states]
         actions = torch.tensor(actions).view(-1, 1).to(self.device)  # [b,1]
         rewards = torch.tensor(rewards, dtype=torch.float).view(-1, 1).to(self.device)  # [b,1]
         next_states = torch.tensor(next_states, dtype=torch.float).to(self.device)  # [b,n_states]
         dones = torch.tensor(dones, dtype=torch.float).view(-1, 1).to(self.device)  # [b,1]
-
         # --------------------------------- #
         # 更新2个价值网络, 对应 12 ~ 13 行
         # --------------------------------- #
 
         # 目标网络的state_value [b, 1]
         y = self.calc_target(rewards, next_states, dones)
-        y = torch.squeeze(y, 1)
         # Q网络1--预测
         q_net_1_qvalues = self.q_net_1(states, actions)
         # 均方差损失 预测-目标
         q_net_1_loss = torch.mean(F.mse_loss(q_net_1_qvalues, y.detach()))
 
         # Q网络2--预测
-        q_net_2_qvalues = self.q_net_2(states, actions).reshape(-1)
+        q_net_2_qvalues = self.q_net_2(states, actions)
         # 均方差损失
         q_net_2_loss = torch.mean(F.mse_loss(q_net_2_qvalues, y.detach()))
 
@@ -300,7 +295,7 @@ class  MySAC(SAC_core): # 根据我们实验修改的 SAC 实现
         
         before_variance = np.var(capability_list)
         # 获取当前状态 tensor
-        current_state = torch.tensor(capability_list)
+        current_state = list(capability_table.values())
 
         # 获取 动作
         # 根据我们的方案， 有5个动作，分别对应表示当前卫星将下一切片传输到哪
@@ -323,12 +318,11 @@ class  MySAC(SAC_core): # 根据我们实验修改的 SAC 实现
         
         capability_list = list(capability_table.values())
         # 计算下一个状态
-        next_state = torch.tensor(capability_list)
+        next_state = list(capability_table.values())
         after_variance = np.var(capability_list)
 
         # 平衡分配 的 奖励
         reward += self.variance_ratio_reward * max(0, before_variance - after_variance)
-        print(len(current_state), current_state, len(next_state), next_state)
         return current_state, action, reward, next_state, isDone
 
 
