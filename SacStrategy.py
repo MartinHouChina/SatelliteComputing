@@ -1,12 +1,13 @@
 # 处理离散问题的模型
 import torch
-from torch import nn, unsqueeze
+from torch import nn
 from torch.nn import functional as F
 import numpy as np
 import collections
 import random
 from abc import abstractmethod, ABC
 from NetworkImplementation import Network
+import os 
 
 
 # ----------------------------------------- #
@@ -127,6 +128,11 @@ class SAC_core(ABC):
         self.gamma = gamma
         self.rho = rho
         self.device = device
+    
+    @abstractmethod
+    def obtain_state(self, *args): #获取当前状态
+        pass 
+    
 
     def take_action(self, state):  # 对应算法第 4 行, 利用 reparameterization trick 选取动作
         state = state.clone().detach().to(self.device)
@@ -225,6 +231,23 @@ class SAC_core(ABC):
             param_target.data.copy_(
                 param_target.data * (1 - self.rho) + param.data * self.rho)
 
+    def save_param(self, path):
+        # 确保路径存在
+        assert os.path.exists(path)
+
+        torch.save(self.q_net_1, path + 'q_net_1.pth')
+        torch.save(self.q_net_2, path + 'q_net_2.pth')
+        torch.save(self.target_q_net_1, path + 'target_q_net_1.pth')
+        torch.save(self.target_q_net_2, path + 'target_q_net_2.pth')
+
+    def load_param(self, directory):
+        # 确保该路径下有 q_net, target_q_net 相关的 4 个模型
+        assert os.path.exists(directory)
+        
+        self.q_net_1 = torch.load(directory + 'q_net_1.pth')
+        self.q_net_2 = torch.load(directory + 'q_net_2.pth')
+        self.target_q_net_1 = torch.load(directory + 'target_q_net_1.pth')
+        self.target_q_net_2 = torch.load(directory + 'target_q_net_2.pth')
 
 
 class  MySAC(SAC_core): # 根据我们实验修改的 SAC 实现
@@ -246,6 +269,56 @@ class  MySAC(SAC_core): # 根据我们实验修改的 SAC 实现
          self.assignment_reward = assignment_reward
          self.variance_ratio_reward = variance_ratio_reward
     
+    def obtain_state(self, mcd, cord_x, cord_y, network:Network):
+        action_space = network.calc_action_space(mcd, cord_x, cord_y)
+        
+        # 初始化 资源 列表
+        capability_table = {
+            (-1, 0): 0,
+            (0, -1): 0,
+            (0, 0): 0,
+            (0, 1): 0,
+            (1, 0): 0
+        }
+        
+        # 辅助函数,返回一个数的符号
+        def get_sign(num):
+            if num == 0:
+                return 0
+            else:
+                return 1 if num > 0 else -1
+        
+
+        print(action_space)
+        # 填充 capability_table
+        for x, y in action_space:
+            x_component, y_component  = x - cord_x + network.width, y - cord_y + network.height # TODO: 有待商榷
+            # 如果这个点恰好是正中心，则单独构成中心分量
+            if x_component == 0 and y_component == 0:
+                capability_table[(0, 0)] = network.satellite_table[x][y].capability
+            else: # 否则计算其在 x, y 方向上的分别贡献
+                capability = network.satellite_table[x][y].capability
+                
+                # 获取贡献方向 
+                x_dir, y_dir = get_sign(x_component), get_sign(y_component)
+
+                # 计算 X 方向上的 贡献
+                if x_dir:
+                    cordination = (x_dir, 0)
+                    capability_table[cordination] += capability * abs(x_component) / (abs(x_component) + abs(y_component))
+
+                # 计算 Y 方向上的 贡献
+                if y_dir:
+                    cordination = (0, y_dir)
+                    capability_table[cordination] += capability * abs(y_component) / (abs(x_component) + abs(y_component))
+        
+        
+        # 获取当前状态 tensor
+        current_state = list(capability_table.values()) 
+
+        return current_state
+
+
     
     def observe(self, mcd, cord_x, cord_y, next_hop, workload, isDone, network:Network):  # 对应算法 5 ~ 6 行
         # 在特定环境中的指定状态下执行某一动作后, 观察得到的奖励，下一状态，以及终止标志
