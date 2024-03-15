@@ -83,14 +83,12 @@ class Network:
         """
         计算以 center_x, center_y 为中心的 卫星 在 mcd 下的 动作空间
         """
-        def MyRange(L, R):
-            return range(L, R + 1)
 
-        bias = [(0, i) for i in MyRange(-mcd, mcd)]
+        bias = [(0, i) for i in range(-mcd, mcd + 1)]
 
-        for i in MyRange(1, mcd):
+        for i in range(1, mcd + 1):
             bias.extend([(i, 0), (-i, 0)])
-            for j in MyRange(1, mcd - i):
+            for j in range(1, mcd - i + 1):
                 bias.extend([(i, j), (i, -j), (-i, j), (-i, -j)])
 
         action_space = list(map(lambda x: (

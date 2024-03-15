@@ -34,6 +34,8 @@ class ReplayBuffer:
     def size(self):
         return len(self.buffer)
 
+    def reset(self):
+        self.buffer.clear()
 
 # ----------------------------------------- #
 # 离散 策略网络 输入状态 输出 指定动作
@@ -270,8 +272,18 @@ class  MySAC(SAC_core): # 根据我们实验修改的 SAC 实现
          self.variance_ratio_reward = variance_ratio_reward
     
     def obtain_state(self, mcd, cord_x, cord_y, network:Network):
-        action_space = network.calc_action_space(mcd, cord_x, cord_y)
+       
+
+        # action_space = network.calc_action_space(mcd, cord_x, cord_y)
         
+        bias = [(0, i) for i in range(-mcd, mcd + 1)]
+
+        for i in range(1, mcd + 1):
+            bias.extend([(i, 0), (-i, 0)])
+            for j in range(1, mcd - i + 1):
+                bias.extend([(i, j), (i, -j), (-i, j), (-i, -j)])
+
+
         # 初始化 资源 列表
         capability_table = {
             (-1, 0): 0,
@@ -289,10 +301,11 @@ class  MySAC(SAC_core): # 根据我们实验修改的 SAC 实现
                 return 1 if num > 0 else -1
         
 
-        print(action_space)
         # 填充 capability_table
-        for x, y in action_space:
-            x_component, y_component  = x - cord_x + network.width, y - cord_y + network.height # TODO: 有待商榷
+        for x_component, y_component in bias:
+            # x_component, y_component  = x - cord_x + network.width, y - cord_y + network.height  TODO: 有待商榷
+            x = (cord_x + x_component + network.width) % network.width
+            y = (cord_y + y_component + network.height) % network.height
             # 如果这个点恰好是正中心，则单独构成中心分量
             if x_component == 0 and y_component == 0:
                 capability_table[(0, 0)] = network.satellite_table[x][y].capability
@@ -395,7 +408,7 @@ class  MySAC(SAC_core): # 根据我们实验修改的 SAC 实现
         after_variance = np.var(capability_list)
 
         # 平衡分配 的 奖励
-        reward += self.variance_ratio_reward * max(0, before_variance - after_variance)
+        reward += self.variance_ratio_reward * before_variance - after_variance
         return current_state, action, reward, next_state, isDone
 
 
