@@ -21,6 +21,7 @@ class Network:
         self.satellite_table = [
             [Satellite(capability) for _ in range(height)] for __ in range(width)]
         self.bandwidth = bandwidth
+        self.max_capability = capability
 
     def calc_resource_variance(self):
         """
@@ -79,7 +80,7 @@ class Network:
             for j in range(self.height):
                 self.satellite_table[i][j].reset()
 
-    def calc_action_space(self, mcd: int, center_x: int, center_y: int):
+    def calc_action_space(self, mcd: int, center_x: int, center_y: int, biasOnly = False):
         """
         计算以 center_x, center_y 为中心的 卫星 在 mcd 下的 动作空间
         """
@@ -90,9 +91,10 @@ class Network:
             bias.extend([(i, 0), (-i, 0)])
             for j in range(1, mcd - i + 1):
                 bias.extend([(i, j), (i, -j), (-i, j), (-i, -j)])
-
-        action_space = list(map(lambda x: (
-            (x[0] + center_x) % self.width, (x[1] + center_y) % self.height), bias))
+        
+        if biasOnly:
+            action_space = list(map(lambda x: ((x[0] + center_x) % self.width, (x[1] + center_y) % self.height), bias))
+       
         return action_space
     
     def calc_finished_task(self):

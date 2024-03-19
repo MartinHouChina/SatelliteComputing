@@ -8,12 +8,12 @@ from NetworkImplementation import Network
 import numpy as np
 # 测试 sac observe 功能
 
-sac = MySAC(5, 6, 0.001, 0.001, 0.001, -1, 0.005, 0.9, 10000, 1)
+sac = MySAC(14, 13, 0.001, 0.0001, 0.001, -1, 0.005, 0.9, 0.1, 1)
 
 network = Network(7, 7, 10, 100, lambda: 1)
 
-result = sac.observe(2, 2, 2, 4, 10, 0, network)
-
+result = sac.observe(2, 2, 2, 4, 10, 10, 0, network)
+print(result)
 # 成功
 
 
@@ -69,33 +69,28 @@ class Environment:
         self.sample_size = sample_size
 
     def interact(self, epoch, scale):
-        
+    
         def summon_a_persudo_task():
             persudo_task = [np.random.normal(self.workload_mu, self.workload_sigma) for _ in range(self.scheme_length)]
             return persudo_task
 
-        bias = [ 
-            (-1, 0),
-            (0, -1),
-            (0, 0),
-            (0, 1),
-            (1, 0)
-        ]
-        
+    
         for round in range(epoch):
             total_reward = 0
             for _ in range(scale):
                 persudo = summon_a_persudo_task()
                 center_x = random.choice(range(self.network.width))
                 center_y = random.choice(range(self.network.height))
-                  
+                
+                bias = self.network.calc_action_space(2, center_x, center_y, True)
+
                 for step in range(self.scheme_length):
                     # 当前状态 
-                    current_state = self.sac.obtain_state(2, center_x, center_y, self.network)
+                    current_state = self.sac.obtain_state(2, center_x, center_y, persudo[step], self.network)
 
-                    # 更新 buffer 
+                    # 更新 buffer
                     action = self.sac.take_action(torch.tensor(current_state).unsqueeze(dim=0))
-                    current, action, reward, nxt, isDone = self.sac.observe(2, center_x, center_y, action.item(), persudo[step], 1 if step == self.scheme_length - 1 else 0, self.network)
+                    current, action, reward, nxt, isDone = self.sac.observe(2, center_x, center_y, action.item(), persudo[step],0 if step == self.scheme_length - 1 else persudo[step + 1], 1 if step == self.scheme_length - 1 else 0, self.network)
                     self.buffer.add(current, action, reward, nxt, isDone)
                     total_reward += reward
 
@@ -108,7 +103,8 @@ class Environment:
                     workload = persudo[step]
                     network.satellite_table[center_x][center_y].capability -= workload
 
-                    # 样本数量足够了，可以训练了
+
+                     # 样本数量足够了，可以训练了
                     if self.buffer.size() >= self.learn_thre:
                         batch = self.buffer.sample(self.sample_size)
                         self.sac.update(batch)
@@ -120,5 +116,5 @@ class Environment:
 
 env = Environment(network, buffer, sac, 5, 15, 2, 10, 5)
 
-env.interact(50, 30)
+env.interact(100000, 50)
 

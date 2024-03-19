@@ -1,6 +1,7 @@
 # 处理离散问题的模型
 import torch
 from torch import nn
+from torch.fx.node import Target
 from torch.nn import functional as F
 import numpy as np
 import collections
@@ -138,6 +139,7 @@ class SAC_core(ABC):
 
     def take_action(self, state):  # 对应算法第 4 行, 利用 reparameterization trick 选取动作
         state = state.clone().detach().to(self.device)
+
         action, _ = self.actor(state)
         return action
 
@@ -271,145 +273,47 @@ class  MySAC(SAC_core): # 根据我们实验修改的 SAC 实现
          self.assignment_reward = assignment_reward
          self.variance_ratio_reward = variance_ratio_reward
     
-    def obtain_state(self, mcd, cord_x, cord_y, network:Network):
+    def obtain_state(self, mcd, cord_x, cord_y, workload, network:Network):
        
-
-        # action_space = network.calc_action_space(mcd, cord_x, cord_y)
-        
-        bias = [(0, i) for i in range(-mcd, mcd + 1)]
-
-        for i in range(1, mcd + 1):
-            bias.extend([(i, 0), (-i, 0)])
-            for j in range(1, mcd - i + 1):
-                bias.extend([(i, j), (i, -j), (-i, j), (-i, -j)])
-
-
-        # 初始化 资源 列表
-        capability_table = {
-            (-1, 0): 0,
-            (0, -1): 0,
-            (0, 0): 0,
-            (0, 1): 0,
-            (1, 0): 0
-        }
-        
-        # 辅助函数,返回一个数的符号
-        def get_sign(num):
-            if num == 0:
-                return 0
-            else:
-                return 1 if num > 0 else -1
-        
-
-        # 填充 capability_table
-        for x_component, y_component in bias:
-            # x_component, y_component  = x - cord_x + network.width, y - cord_y + network.height  TODO: 有待商榷
-            x = (cord_x + x_component + network.width) % network.width
-            y = (cord_y + y_component + network.height) % network.height
-            # 如果这个点恰好是正中心，则单独构成中心分量
-            if x_component == 0 and y_component == 0:
-                capability_table[(0, 0)] = network.satellite_table[x][y].capability
-            else: # 否则计算其在 x, y 方向上的分别贡献
-                capability = network.satellite_table[x][y].capability
-                
-                # 获取贡献方向 
-                x_dir, y_dir = get_sign(x_component), get_sign(y_component)
-
-                # 计算 X 方向上的 贡献
-                if x_dir:
-                    cordination = (x_dir, 0)
-                    capability_table[cordination] += capability * abs(x_component) / (abs(x_component) + abs(y_component))
-
-                # 计算 Y 方向上的 贡献
-                if y_dir:
-                    cordination = (0, y_dir)
-                    capability_table[cordination] += capability * abs(y_component) / (abs(x_component) + abs(y_component))
-        
-        
-        # 获取当前状态 tensor
-        current_state = list(capability_table.values()) 
-
-        return current_state
-
-
+        bias = network.calc_action_space(mcd, cord_x, cord_y, True)
+        bias.sort()
+        state = list(map(lambda c: network.satellite_table[c[0]][c[1]].capability / network.max_capability, bias))
+        state = state + [workload / network.max_capability]
+        return state
+       
     
-    def observe(self, mcd, cord_x, cord_y, next_hop, workload, isDone, network:Network):  # 对应算法 5 ~ 6 行
+    def observe(self, mcd, cord_x, cord_y, next_hop, workload, nxt_workload, isDone, network:Network):  # 对应算法 5 ~ 6 行
         # 在特定环境中的指定状态下执行某一动作后, 观察得到的奖励，下一状态，以及终止标志
         # 根据我们的算法 current_state 会是一个 5 个元素 的邻近资源 tensor
         # 计算 SAC 
-        action_space = network.calc_action_space(mcd, cord_x, cord_y)
-        
-        # 初始化 资源 列表
-        capability_table = {
-            (-1, 0): 0,
-            (0, -1): 0,
-            (0, 0): 0,
-            (0, 1): 0,
-            (1, 0): 0
-        }
-        
-        # 辅助函数,返回一个数的符号
-        def get_sign(num):
-            if num == 0:
-                return 0
-            else:
-                return 1 if num > 0 else -1
-
-        # 填充 capability_table
-        for x, y in action_space:
-            x_component, y_component  = x - cord_x, y - cord_y
-            # 如果这个点恰好是正中心，则单独构成中心分量
-            if x_component == 0 and y_component == 0:
-                capability_table[(0, 0)] = network.satellite_table[x][y].capability
-            else: # 否则计算其在 x, y 方向上的分别贡献
-                capability = network.satellite_table[x][y].capability
-                
-                # 获取贡献方向 
-                x_dir, y_dir = get_sign(x_component), get_sign(y_component)
-
-                # 计算 X 方向上的 贡献
-                if x_dir:
-                    cordination = (x_dir, 0)
-                    capability_table[cordination] += capability * abs(x_component) / (abs(x_component) + abs(y_component))
-
-                # 计算 Y 方向上的 贡献
-                if y_dir:
-                    cordination = (0, y_dir)
-                    capability_table[cordination] += capability * abs(y_component) / (abs(x_component) + abs(y_component))
-        
-        capability_list = list(capability_table.values())
-        
-        before_variance = np.var(capability_list)
-        # 获取当前状态 tensor
-        current_state = list(capability_table.values())
-
-        # 获取 动作
-        # 根据我们的方案， 有5个动作，分别对应表示当前卫星将下一切片传输到哪
-        #   0
-        # 1 2 3
-        #   4
+        bias = network.calc_action_space(mcd, cord_x, cord_y, True)
+        bias.sort()
+        cur_state = list(map(lambda c: network.satellite_table[(cord_x + c[0] + network.width) % network.width][(c[1] + cord_y + network.height) % network.height].capability / network.max_capability, bias))
+        cur_state = cur_state + [workload / network.max_capability]
         action = torch.tensor(next_hop)
+        next_hop = bias[next_hop]
 
-        action_list = list(capability_table.keys())
-        # 更新 capability_table, 为计算 next_state 作准备
-       
-        cordination = action_list[next_hop]
+        reward = 0 
+        tar_x = (network.width + cord_x + next_hop[0]) % network.width
+        tar_y = (network.height + cord_y + next_hop[1]) % network.height
+        remaining = network.satellite_table[tar_x][tar_y].capability
 
-        reward = 0
+        if remaining >= workload:
 
-        # 成功分配 的 误差
-        if capability_table[cordination] >= workload:
-            capability_table[cordination] -= workload
             reward += self.assignment_reward
-        
-        capability_list = list(capability_table.values())
-        # 计算下一个状态
-        next_state = list(capability_table.values())
-        after_variance = np.var(capability_list)
 
-        # 平衡分配 的 奖励
-        reward += self.variance_ratio_reward * before_variance - after_variance
-        return current_state, action, reward, next_state, isDone
+            network.satellite_table[tar_x][tar_y].capability -= workload
+            bias = network.calc_action_space(mcd, cord_x, cord_y, True)
+            bias.sort()
+            nxt_state = list(map(lambda c: network.satellite_table[(cord_x + c[0] + network.width) % network.width][(c[1] + cord_y + network.height) % network.height].capability / network.max_capability, bias))
+            nxt_state = nxt_state + [nxt_workload / network.max_capability]
+            network.satellite_table[tar_x][tar_y].capability += workload
+        else:
+            nxt_state = cur_state
 
+        reward += self.variance_ratio_reward * max(0, np.var(cur_state) - np.var(nxt_state))
 
+        return cur_state, action, reward, nxt_state, isDone
 
+       
+  
